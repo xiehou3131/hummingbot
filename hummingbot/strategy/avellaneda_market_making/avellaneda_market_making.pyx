@@ -865,9 +865,10 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
                     size = market.c_quantize_order_amount(self.trading_pair, size)
                     if str(value[0]) == "buy":
                         price = reference_price * (Decimal("1") - Decimal(str(value[1])) / Decimal("100"))
+                        price = market.c_quantize_order_price(self.trading_pair, price, True)
                     elif str(value[0]) == "sell":
                         price = reference_price * (Decimal("1") + Decimal(str(value[1])) / Decimal("100"))
-                    price = market.c_quantize_order_price(self.trading_pair, price)
+                        price = market.c_quantize_order_price(self.trading_pair, price, False)
                     if size > 0 and price > 0:
                         list_to_be_appended.append(PriceSize(price, size))
         return buys, sells
@@ -885,9 +886,9 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
         if size > 0:
             for level in range(self.order_levels):
                 bid_price = market.c_quantize_order_price(self.trading_pair,
-                                                          self._optimal_bid - Decimal(str(bid_level_spreads[level])))
+                                                          self._optimal_bid - Decimal(str(bid_level_spreads[level])), True)
                 ask_price = market.c_quantize_order_price(self.trading_pair,
-                                                          self._optimal_ask + Decimal(str(ask_level_spreads[level])))
+                                                          self._optimal_ask + Decimal(str(ask_level_spreads[level])), False)
 
                 buys.append(PriceSize(bid_price, size))
                 sells.append(PriceSize(ask_price, size))
@@ -901,12 +902,12 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
             ExchangeBase market = self._market_info.market
             list buys = []
             list sells = []
-        price = market.c_quantize_order_price(self.trading_pair, Decimal(str(self._optimal_bid)))
+        price = market.c_quantize_order_price(self.trading_pair, Decimal(str(self._optimal_bid)), True)
         size = market.c_quantize_order_amount(self.trading_pair, self._config_map.order_amount)
         if size > 0:
             buys.append(PriceSize(price, size))
 
-        price = market.c_quantize_order_price(self.trading_pair, Decimal(str(self._optimal_ask)))
+        price = market.c_quantize_order_price(self.trading_pair, Decimal(str(self._optimal_ask)), False)
         size = market.c_quantize_order_amount(self.trading_pair, self._config_map.order_amount)
         if size > 0:
             sells.append(PriceSize(price, size))
@@ -1055,7 +1056,7 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
             proposal.buys = sorted(proposal.buys, key = lambda p: p.price, reverse = True)
             for i, proposed in enumerate(proposal.buys):
                 if proposal.buys[i].price > price_above_bid:
-                    proposal.buys[i].price = market.c_quantize_order_price(self.trading_pair, price_above_bid)
+                    proposal.buys[i].price = market.c_quantize_order_price(self.trading_pair, price_above_bid, True)
 
         if len(proposal.sells) > 0:
             # Get the top ask price in the market using order_optimization_depth and your sell order volume
@@ -1073,7 +1074,7 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
             proposal.sells = sorted(proposal.sells, key = lambda p: p.price)
             for i, proposed in enumerate(proposal.sells):
                 if proposal.sells[i].price < price_below_ask:
-                    proposal.sells[i].price = market.c_quantize_order_price(self.trading_pair, price_below_ask)
+                    proposal.sells[i].price = market.c_quantize_order_price(self.trading_pair, price_below_ask, False)
 
     def apply_order_optimization(self, proposal: Proposal):
         return self.c_apply_order_optimization(proposal)
@@ -1121,12 +1122,12 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
             fee = market.c_get_fee(self.base_asset, self.quote_asset,
                                    self._limit_order_type, TradeType.BUY, buy.size, buy.price)
             price = buy.price * (Decimal(1) - fee.percent)
-            buy.price = market.c_quantize_order_price(self.trading_pair, price)
+            buy.price = market.c_quantize_order_price(self.trading_pair, price, True)
         for sell in proposal.sells:
             fee = market.c_get_fee(self.base_asset, self.quote_asset,
                                    self._limit_order_type, TradeType.SELL, sell.size, sell.price)
             price = sell.price * (Decimal(1) + fee.percent)
-            sell.price = market.c_quantize_order_price(self.trading_pair, price)
+            sell.price = market.c_quantize_order_price(self.trading_pair, price, False)
 
     def apply_add_transaction_costs(self, proposal: Proposal):
         self.c_apply_add_transaction_costs(proposal)

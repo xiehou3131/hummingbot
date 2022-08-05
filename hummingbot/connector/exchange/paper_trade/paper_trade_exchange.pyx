@@ -1062,7 +1062,8 @@ cdef class PaperTradeExchange(ExchangeBase):
 
     cdef object c_quantize_order_price(self,
                                        str trading_pair,
-                                       object price):
+                                       object price,
+                                       bint is_buy = False):
         price = Decimal('%.7g' % price)  # hard code to round to 8 significant digits
         price_quantum = self.c_get_order_price_quantum(trading_pair, price)
         return (price // price_quantum) * price_quantum

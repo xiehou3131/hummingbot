@@ -387,11 +387,17 @@ cdef class ConnectorBase(NetworkIterator):
         """
         raise NotImplementedError
 
-    cdef object c_quantize_order_price(self, str trading_pair, object price):
+    cdef object c_quantize_order_price(self, str trading_pair, object price, bint is_buy = False):
         if price.is_nan():
             return price
         price_quantum = self.c_get_order_price_quantum(trading_pair, price)
-        return (price // price_quantum) * price_quantum
+        if is_buy:
+            return (price // price_quantum) * price_quantum
+        else:
+            floor_price = (price // price_quantum) * price_quantum
+            if floor_price < price:
+                return floor_price + price_quantum
+            return floor_price
 
     def quantize_order_price(self, trading_pair: str, price: Decimal) -> Decimal:
         """

@@ -147,7 +147,8 @@ cdef class MockPaperExchange(PaperTradeExchange):
 
     cdef object c_quantize_order_price(self,
                                        str trading_pair,
-                                       object price):
+                                       object price,
+                                       bint is_buy = False):
         return ConnectorBase.c_quantize_order_price(self, trading_pair, price)
 
     cdef object c_quantize_order_amount(self,
