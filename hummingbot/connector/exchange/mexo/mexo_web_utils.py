@@ -16,7 +16,7 @@ def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> st
     :param domain: the Mexo domain to connect to ("com" or "us"). The default value is "com"
     :return: the full URL to the endpoint
     """
-    if path_url.startswith('/quote'):
+    if path_url.startswith('quote'):
         return CONSTANTS.REST_URL.format(domain) + path_url
     else:
         return CONSTANTS.REST_URL.format(domain) + CONSTANTS.PUBLIC_API_VERSION + path_url
@@ -29,7 +29,7 @@ def private_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> s
     :param domain: the Mexo domain to connect to ("com" or "us"). The default value is "com"
     :return: the full URL to the endpoint
     """
-    if path_url.startswith('/quote'):
+    if path_url.startswith('quote'):
         return CONSTANTS.REST_URL.format(domain) + path_url
     else:
         return CONSTANTS.REST_URL.format(domain) + CONSTANTS.PRIVATE_API_VERSION + path_url
