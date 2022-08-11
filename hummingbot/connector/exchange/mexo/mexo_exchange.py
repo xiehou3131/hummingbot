@@ -19,7 +19,7 @@ from hummingbot.core.data_type.trade_fee import DeductedFromReturnsTradeFee, Tok
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.event.events import MarketEvent, OrderFilledEvent
 from hummingbot.core.utils.async_utils import safe_gather
-from hummingbot.core.web_assistant.connections.data_types import RESTMethod
+from hummingbot.core.web_assistant.connections.data_types import RESTMethod, RESTRequest
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 
 if TYPE_CHECKING:
@@ -147,6 +147,49 @@ class MexoExchange(ExchangePyBase):
                  is_maker: Optional[bool] = None) -> TradeFeeBase:
         is_maker = order_type is OrderType.LIMIT_MAKER
         return DeductedFromReturnsTradeFee(percent=self.estimate_fee_pct(is_maker))
+
+    async def _api_request(self,
+                           path_url,
+                           method: RESTMethod = RESTMethod.GET,
+                           params: Optional[Dict[str, Any]] = None,
+                           data: Optional[Dict[str, Any]] = None,
+                           is_auth_required: bool = False,
+                           return_err: bool = False,
+                           limit_id: Optional[str] = None) -> Dict[str, Any]:
+
+        rest_assistant = await self._web_assistants_factory.get_rest_assistant()
+        if is_auth_required:
+            url = self.web_utils.private_rest_url(path_url, domain=self.domain)
+        else:
+            url = self.web_utils.public_rest_url(path_url, domain=self.domain)
+
+        throttler_limit_id = limit_id if limit_id else path_url
+
+        local_headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+        request = RESTRequest(
+            method=method,
+            url=url,
+            params=params,
+            data=data,
+            headers=local_headers,
+            is_auth_required=is_auth_required,
+            throttler_limit_id=throttler_limit_id
+        )
+
+        async with rest_assistant._throttler.execute_task(limit_id=throttler_limit_id):
+            response = await rest_assistant.call(request=request, timeout=None)
+
+            if 400 <= response.status:
+                if return_err:
+                    error_response = await response.json()
+                    return error_response
+                else:
+                    error_response = await response.text()
+                    raise IOError(f"Error executing request {method.name} {url}. HTTP status is {response.status}. "
+                                  f"Error: {error_response}")
+            result = await response.json()
+            return result
 
     async def _place_order(self,
                            order_id: str,

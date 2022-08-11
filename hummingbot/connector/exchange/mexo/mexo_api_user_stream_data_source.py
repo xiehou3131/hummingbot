@@ -6,7 +6,6 @@ from hummingbot.connector.exchange.mexo import mexo_constants as CONSTANTS, mexo
 from hummingbot.connector.exchange.mexo.mexo_auth import MexoAuth
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from hummingbot.core.web_assistant.ws_assistant import WSAssistant
 from hummingbot.logger import HummingbotLogger
@@ -61,15 +60,11 @@ class MexoAPIUserStreamDataSource(UserStreamTrackerDataSource):
         pass
 
     async def _get_listen_key(self):
-        rest_assistant = await self._api_factory.get_rest_assistant()
         try:
-            data = await rest_assistant.execute_request(
-                url=web_utils.public_rest_url(path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL, domain=self._domain),
+            data = await self._connector._api_post(
+                path_url=web_utils.public_rest_url(path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL, domain=self._domain),
                 data={},
-                method=RESTMethod.POST,
-                throttler_limit_id=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
-                is_auth_required=True,
-                headers=self._auth.header_for_authentication()
+                is_auth_required=True
             )
         except asyncio.CancelledError:
             raise
@@ -79,16 +74,13 @@ class MexoAPIUserStreamDataSource(UserStreamTrackerDataSource):
         return data["listenKey"]
 
     async def _ping_listen_key(self) -> bool:
-        rest_assistant = await self._api_factory.get_rest_assistant()
         try:
-            data = await rest_assistant.execute_request(
-                url=web_utils.public_rest_url(path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL, domain=self._domain),
+            data = await self._connector._api_put(
+                path_url=web_utils.public_rest_url(path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL, domain=self._domain),
                 params={"listenKey": self._current_listen_key},
-                method=RESTMethod.PUT,
                 return_err=True,
-                throttler_limit_id=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
-                is_auth_required=True,
-                headers=self._auth.header_for_authentication()
+                limit_id=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
+                is_auth_required=True
             )
 
             if "code" in data:
