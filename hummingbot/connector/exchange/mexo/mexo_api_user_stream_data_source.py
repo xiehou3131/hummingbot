@@ -94,6 +94,7 @@ class MexoAPIUserStreamDataSource(UserStreamTrackerDataSource):
             self.logger().warning(f"Failed to refresh the listen key {self._current_listen_key}: {exception}")
             return False
 
+        self.logger.info(f"Successfully refreshed key {self._current_listen_key}")
         return True
 
     async def _manage_listen_key_task_loop(self):
