@@ -215,7 +215,7 @@ class MexoExchange(ExchangePyBase):
 
         order_result = await self._api_post(
             path_url=CONSTANTS.ORDER_PATH_URL,
-            data=api_params,
+            params=api_params,
             is_auth_required=True)
         o_id = str(order_result["orderId"])
         return (o_id, self.current_timestamp)
