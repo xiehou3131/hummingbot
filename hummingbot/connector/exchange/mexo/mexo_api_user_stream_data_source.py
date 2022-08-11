@@ -64,6 +64,7 @@ class MexoAPIUserStreamDataSource(UserStreamTrackerDataSource):
             data = await self._connector._api_post(
                 path_url=web_utils.public_rest_url(path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL, domain=self._domain),
                 data={},
+                limit_id=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
                 is_auth_required=True
             )
         except asyncio.CancelledError:
