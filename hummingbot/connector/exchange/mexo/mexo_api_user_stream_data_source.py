@@ -68,6 +68,7 @@ class MexoAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 params={"timestamp": int(self._connector.current_timestamp * 1000)},
                 method=RESTMethod.POST,
                 throttler_limit_id=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
+                is_auth_required=True,
                 headers=self._auth.header_for_authentication()
             )
         except asyncio.CancelledError:
@@ -86,6 +87,7 @@ class MexoAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 method=RESTMethod.PUT,
                 return_err=True,
                 throttler_limit_id=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
+                is_auth_required=True,
                 headers=self._auth.header_for_authentication()
             )
 
