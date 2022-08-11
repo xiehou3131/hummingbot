@@ -2,7 +2,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, List, Optional
 
-from hummingbot.connector.exchange.mexo import mexo_constants as CONSTANTS, mexo_web_utils as web_utils
+from hummingbot.connector.exchange.mexo import mexo_constants as CONSTANTS
 from hummingbot.connector.exchange.mexo.mexo_auth import MexoAuth
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.utils.async_utils import safe_ensure_future
@@ -62,7 +62,7 @@ class MexoAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def _get_listen_key(self):
         try:
             data = await self._connector._api_post(
-                path_url=web_utils.public_rest_url(path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL, domain=self._domain),
+                path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
                 params={},
                 limit_id=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
                 is_auth_required=True
@@ -77,7 +77,7 @@ class MexoAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def _ping_listen_key(self) -> bool:
         try:
             data = await self._connector._api_put(
-                path_url=web_utils.public_rest_url(path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL, domain=self._domain),
+                path_url=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
                 params={"listenKey": self._current_listen_key},
                 return_err=True,
                 limit_id=CONSTANTS.MEXO_USER_STREAM_PATH_URL,
