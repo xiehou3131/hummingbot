@@ -15,10 +15,10 @@ PUBLIC_API_VERSION = "v1"
 PRIVATE_API_VERSION = "v1"
 
 # Public API endpoints or MexoClient function
-TICKER_PRICE_CHANGE_PATH_URL = "/quote/v1/ticker/24hr"
+TICKER_PRICE_CHANGE_PATH_URL = "quote/v1/ticker/24hr"
 EXCHANGE_INFO_PATH_URL = "/brokerInfo"
 PING_PATH_URL = "/ping"
-SNAPSHOT_PATH_URL = "/quote/v1/depth"
+SNAPSHOT_PATH_URL = "quote/v1/depth"
 SERVER_TIME_PATH_URL = "/time"
 
 # Private API endpoints or MexoClient function
