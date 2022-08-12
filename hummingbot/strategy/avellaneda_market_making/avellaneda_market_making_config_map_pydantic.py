@@ -226,6 +226,14 @@ class AvellanedaMarketMakingConfigMap(BaseTradingStrategyConfigMap):
             prompt=lambda mi: "Enter minimum spread limit (as % of mid price)",
         ),
     )
+    default_spread: Decimal = Field(
+        default=Decimal("10"),
+        description="The spread used if there is no volatility.",
+        gt=0,
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter default spread (as % of mid price)",
+        ),
+    )
     order_refresh_time: float = Field(
         default=...,
         description="The frequency at which the orders' spreads will be re-evaluated.",
@@ -439,6 +447,7 @@ class AvellanedaMarketMakingConfigMap(BaseTradingStrategyConfigMap):
         "order_refresh_time",
         "max_order_age",
         "filled_order_delay",
+        "default_spread",
         pre=True,
     )
     def validate_decimal_above_zero(cls, v: str):

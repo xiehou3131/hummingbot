@@ -135,6 +135,10 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
     @property
     def min_spread(self):
         return self._config_map.min_spread
+    
+    @property
+    def default_spread(self):
+        return self._config_map.default_spread
 
     @property
     def avg_vol(self):
@@ -756,25 +760,28 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
 
             self._optimal_spread = self.gamma * vol * time_left_fraction
             self._optimal_spread += 2 * Decimal(1 + self.gamma / self._kappa).ln() / self.gamma
+        else:
+            self._reservation_price = price
+            self._optimal_spread = price / 100 * Decimal(str(self._config_map.default_spread))
 
-            min_spread = price / 100 * Decimal(str(self._config_map.min_spread))
+        min_spread = price / 100 * Decimal(str(self._config_map.min_spread))
 
-            max_limit_bid = price - min_spread / 2
-            min_limit_ask = price + min_spread / 2
+        max_limit_bid = price - min_spread / 2
+        min_limit_ask = price + min_spread / 2
 
-            self._optimal_ask = max(self._reservation_price + self._optimal_spread / 2, min_limit_ask)
-            self._optimal_bid = min(self._reservation_price - self._optimal_spread / 2, max_limit_bid)
+        self._optimal_ask = max(self._reservation_price + self._optimal_spread / 2, min_limit_ask)
+        self._optimal_bid = min(self._reservation_price - self._optimal_spread / 2, max_limit_bid)
 
-            # This is not what the algorithm will use as proposed bid and ask. This is just the raw output.
-            # Optimal bid and optimal ask prices will be used
-            if self._is_debug:
-                self.logger().info(f"q={q:.4f} | "
-                                   f"vol={vol:.10f}")
-                self.logger().info(f"mid_price={price:.10f} | "
-                                   f"reservation_price={self._reservation_price:.10f} | "
-                                   f"optimal_spread={self._optimal_spread:.10f}")
-                self.logger().info(f"optimal_bid={(price-(self._reservation_price - self._optimal_spread / 2)) / price * 100:.4f}% | "
-                                   f"optimal_ask={((self._reservation_price + self._optimal_spread / 2) - price) / price * 100:.4f}%")
+        # This is not what the algorithm will use as proposed bid and ask. This is just the raw output.
+        # Optimal bid and optimal ask prices will be used
+        if self._is_debug:
+            self.logger().info(f"q={q:.4f} | "
+                                f"vol={vol:.10f}")
+            self.logger().info(f"mid_price={price:.10f} | "
+                                f"reservation_price={self._reservation_price:.10f} | "
+                                f"optimal_spread={self._optimal_spread:.10f}")
+            self.logger().info(f"optimal_bid={(price-(self._reservation_price - self._optimal_spread / 2)) / price * 100:.4f}% | "
+                                f"optimal_ask={((self._reservation_price + self._optimal_spread / 2) - price) / price * 100:.4f}%")
 
     def calculate_reservation_price_and_optimal_spread(self):
         return self.c_calculate_reservation_price_and_optimal_spread()
