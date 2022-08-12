@@ -302,62 +302,66 @@ class MexoExchange(ExchangePyBase):
         stream data source. It keeps reading events from the queue until the task is interrupted.
         The events received are balance updates, order updates and trade events.
         """
-        async for event_message in self._iter_user_event_queue():
+        async for event_messages in self._iter_user_event_queue():
             try:
-                event_type = event_message.get("e")
-                # Refer to https://github.com/mexo-exchange/mexo-official-api-docs/blob/master/user-data-stream.md
-                # As per the order update section in Mexo the ID of the order being canceled is under the "C" key
-                if event_type == "executionReport":
-                    execution_type = event_message.get("x")
-                    '''
-                    if execution_type != "CANCELED":
+                if type(event_messages) != "list":
+                    continue
+                event_messages.sort(key=lambda x: x.get("E"))
+                for event_message in event_messages:
+                    event_type = event_message.get("e")
+                    # Refer to https://github.com/mexo-exchange/mexo-official-api-docs/blob/master/user-data-stream.md
+                    # As per the order update section in Mexo the ID of the order being canceled is under the "C" key
+                    if event_type == "executionReport":
+                        execution_type = event_message.get("x")
+                        '''
+                        if execution_type != "CANCELED":
+                            client_order_id = event_message.get("c")
+                        else:
+                            client_order_id = event_message.get("C")
+                        '''
                         client_order_id = event_message.get("c")
-                    else:
-                        client_order_id = event_message.get("C")
-                    '''
-                    client_order_id = event_message.get("c")
 
-                    if execution_type == "PARTIALLY_FILLED" or execution_type == "FILLED":
-                        tracked_order = self._order_tracker.fetch_order(client_order_id=client_order_id)
+                        if execution_type == "PARTIALLY_FILLED" or execution_type == "FILLED":
+                            tracked_order = self._order_tracker.fetch_order(client_order_id=client_order_id)
+                            if tracked_order is not None:
+                                fee = TradeFeeBase.new_spot_fee(
+                                    fee_schema=self.trade_fee_schema(),
+                                    trade_type=tracked_order.trade_type,
+                                    percent_token=event_message["N"],
+                                    flat_fees=[TokenAmount(amount=Decimal(event_message["n"]), token=event_message["N"])]
+                                )
+                                trade_update = TradeUpdate(
+                                    trade_id=str(event_message["t"]),
+                                    client_order_id=client_order_id,
+                                    exchange_order_id=str(event_message["i"]),
+                                    trading_pair=tracked_order.trading_pair,
+                                    fee=fee,
+                                    fill_base_amount=Decimal(event_message["l"]),
+                                    fill_quote_amount=Decimal(event_message["l"]) * Decimal(event_message["L"]),
+                                    fill_price=Decimal(event_message["L"]),
+                                    fill_timestamp=event_message["T"] * 1e-3,
+                                )
+                                self._order_tracker.process_trade_update(trade_update)
+
+                        tracked_order = self.in_flight_orders.get(client_order_id)
                         if tracked_order is not None:
-                            fee = TradeFeeBase.new_spot_fee(
-                                fee_schema=self.trade_fee_schema(),
-                                trade_type=tracked_order.trade_type,
-                                percent_token=event_message["N"],
-                                flat_fees=[TokenAmount(amount=Decimal(event_message["n"]), token=event_message["N"])]
-                            )
-                            trade_update = TradeUpdate(
-                                trade_id=str(event_message["t"]),
+                            order_update = OrderUpdate(
+                                trading_pair=tracked_order.trading_pair,
+                                update_timestamp=event_message["E"] * 1e-3,
+                                new_state=CONSTANTS.ORDER_STATE[event_message["X"]],
                                 client_order_id=client_order_id,
                                 exchange_order_id=str(event_message["i"]),
-                                trading_pair=tracked_order.trading_pair,
-                                fee=fee,
-                                fill_base_amount=Decimal(event_message["l"]),
-                                fill_quote_amount=Decimal(event_message["l"]) * Decimal(event_message["L"]),
-                                fill_price=Decimal(event_message["L"]),
-                                fill_timestamp=event_message["T"] * 1e-3,
                             )
-                            self._order_tracker.process_trade_update(trade_update)
+                            self._order_tracker.process_order_update(order_update=order_update)
 
-                    tracked_order = self.in_flight_orders.get(client_order_id)
-                    if tracked_order is not None:
-                        order_update = OrderUpdate(
-                            trading_pair=tracked_order.trading_pair,
-                            update_timestamp=event_message["E"] * 1e-3,
-                            new_state=CONSTANTS.ORDER_STATE[event_message["X"]],
-                            client_order_id=client_order_id,
-                            exchange_order_id=str(event_message["i"]),
-                        )
-                        self._order_tracker.process_order_update(order_update=order_update)
-
-                elif event_type == "outboundAccountInfo":
-                    balances = event_message["B"]
-                    for balance_entry in balances:
-                        asset_name = balance_entry["a"]
-                        free_balance = Decimal(balance_entry["f"])
-                        total_balance = Decimal(balance_entry["f"]) + Decimal(balance_entry["l"])
-                        self._account_available_balances[asset_name] = free_balance
-                        self._account_balances[asset_name] = total_balance
+                    elif event_type == "outboundAccountInfo":
+                        balances = event_message["B"]
+                        for balance_entry in balances:
+                            asset_name = balance_entry["a"]
+                            free_balance = Decimal(balance_entry["f"])
+                            total_balance = Decimal(balance_entry["f"]) + Decimal(balance_entry["l"])
+                            self._account_available_balances[asset_name] = free_balance
+                            self._account_balances[asset_name] = total_balance
 
             except asyncio.CancelledError:
                 raise
