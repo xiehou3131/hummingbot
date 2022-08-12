@@ -224,7 +224,7 @@ class MexoExchange(ExchangePyBase):
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
         api_params = {
             "symbol": symbol,
-            "origClientOrderId": order_id,
+            "clientOrderId": order_id,
         }
         cancel_result = await self._api_delete(
             path_url=CONSTANTS.ORDER_PATH_URL,
