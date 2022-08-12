@@ -776,12 +776,12 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
         # Optimal bid and optimal ask prices will be used
         if self._is_debug:
             self.logger().info(f"q={q:.4f} | "
-                                f"vol={vol:.10f}")
+                               f"vol={vol:.10f}")
             self.logger().info(f"mid_price={price:.10f} | "
-                                f"reservation_price={self._reservation_price:.10f} | "
-                                f"optimal_spread={self._optimal_spread:.10f}")
+                               f"reservation_price={self._reservation_price:.10f} | "
+                               f"optimal_spread={self._optimal_spread:.10f}")
             self.logger().info(f"optimal_bid={(price-(self._reservation_price - self._optimal_spread / 2)) / price * 100:.4f}% | "
-                                f"optimal_ask={((self._reservation_price + self._optimal_spread / 2) - price) / price * 100:.4f}%")
+                               f"optimal_ask={((self._reservation_price + self._optimal_spread / 2) - price) / price * 100:.4f}%")
 
     def calculate_reservation_price_and_optimal_spread(self):
         return self.c_calculate_reservation_price_and_optimal_spread()
