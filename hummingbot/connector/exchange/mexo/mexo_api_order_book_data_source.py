@@ -125,15 +125,14 @@ class MexoAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     async def _parse_trade_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
         trading_pair = await self._connector.trading_pair_associated_to_exchange_symbol(symbol=raw_message["symbol"])
-        trades = raw_message.data
-        for trade in trades:
+        for trade in raw_message["data"]:
             trade_message = MexoOrderBook.trade_message_from_exchange(
                 trade, {"trading_pair": trading_pair})
             message_queue.put_nowait(trade_message)
 
     async def _parse_order_book_diff_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
         trading_pair = await self._connector.trading_pair_associated_to_exchange_symbol(symbol=raw_message["symbol"])
-        for diff in raw_message.data:
+        for diff in raw_message["data"]:
             order_book_message: OrderBookMessage = MexoOrderBook.diff_message_from_exchange(
                 diff, time.time(), {"trading_pair": trading_pair})
             message_queue.put_nowait(order_book_message)
