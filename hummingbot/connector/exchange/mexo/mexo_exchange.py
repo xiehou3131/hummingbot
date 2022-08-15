@@ -304,7 +304,7 @@ class MexoExchange(ExchangePyBase):
         """
         async for event_messages in self._iter_user_event_queue():
             try:
-                if type(event_messages) != "list":
+                if not isinstance(event_messages, list):
                     continue
                 event_messages.sort(key=lambda x: x.get("E"))
                 for event_message in event_messages:
@@ -339,7 +339,7 @@ class MexoExchange(ExchangePyBase):
                                     fill_base_amount=Decimal(event_message["l"]),
                                     fill_quote_amount=Decimal(event_message["l"]) * Decimal(event_message["L"]),
                                     fill_price=Decimal(event_message["L"]),
-                                    fill_timestamp=event_message["T"] * 1e-3,
+                                    fill_timestamp=float(event_message["T"]) * 1e-3,
                                 )
                                 self._order_tracker.process_trade_update(trade_update)
 
@@ -347,7 +347,7 @@ class MexoExchange(ExchangePyBase):
                         if tracked_order is not None:
                             order_update = OrderUpdate(
                                 trading_pair=tracked_order.trading_pair,
-                                update_timestamp=event_message["E"] * 1e-3,
+                                update_timestamp=float(event_message["E"]) * 1e-3,
                                 new_state=CONSTANTS.ORDER_STATE[event_message["X"]],
                                 client_order_id=client_order_id,
                                 exchange_order_id=str(event_message["i"]),
@@ -435,7 +435,7 @@ class MexoExchange(ExchangePyBase):
                             fill_base_amount=Decimal(trade["qty"]),
                             fill_quote_amount=Decimal(trade["qty"]) * Decimal(trade["price"]),
                             fill_price=Decimal(trade["price"]),
-                            fill_timestamp=trade["time"] * 1e-3,
+                            fill_timestamp=float(trade["time"]) * 1e-3,
                         )
                         self._order_tracker.process_trade_update(trade_update)
                     elif self.is_confirmed_new_order_filled_event(str(trade["id"]), exchange_order_id, trading_pair):
@@ -508,7 +508,7 @@ class MexoExchange(ExchangePyBase):
                         client_order_id=client_order_id,
                         exchange_order_id=str(order_update["orderId"]),
                         trading_pair=tracked_order.trading_pair,
-                        update_timestamp=order_update["updateTime"] * 1e-3,
+                        update_timestamp=float(order_update["updateTime"]) * 1e-3,
                         new_state=new_state,
                     )
                     self._order_tracker.process_order_update(update)
