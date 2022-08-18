@@ -61,6 +61,7 @@ cdef class PureMarketMakingStrategy(StrategyBase):
 
         double _auto_trade_value
         double _auto_trade_interval
+        double _last_auto_trade_timestamp
 
     cdef c_auto_trade(self)
     cdef object c_get_mid_price(self)
