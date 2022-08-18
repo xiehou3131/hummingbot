@@ -775,6 +775,7 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             if self.c_to_create_orders(proposal):
                 self.c_execute_orders_proposal(proposal)
             if self._last_auto_trade_timestamp + self._auto_trade_interval < timestamp and self._auto_trade_value > 0:
+                self._last_auto_trade_timestamp = timestamp
                 self.c_auto_trade()
         finally:
             self._last_timestamp = timestamp
