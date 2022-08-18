@@ -85,7 +85,9 @@ cdef class PureMarketMakingStrategy(StrategyBase):
                     bid_order_level_spreads: List[Decimal] = None,
                     ask_order_level_spreads: List[Decimal] = None,
                     should_wait_order_cancel_confirmation: bool = True,
-                    moving_price_band: Optional[MovingPriceBand] = None
+                    moving_price_band: Optional[MovingPriceBand] = None,
+                    auto_trade_value: float = 0,
+                    auto_trade_interval: float = 0
                     ):
         if order_override is None:
             order_override = {}
@@ -140,6 +142,9 @@ cdef class PureMarketMakingStrategy(StrategyBase):
         self._filled_sells_balance = 0
         self._logging_options = logging_options
         self._last_timestamp = 0
+        self._auto_trade_interval = auto_trade_interval
+        self._auto_trade_value = auto_trade_value
+        self._last_auto_trade_timestamp = 0
         self._status_report_interval = status_report_interval
         self._last_own_trade_price = Decimal('nan')
         self._should_wait_order_cancel_confirmation = should_wait_order_cancel_confirmation
@@ -769,8 +774,36 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             self.c_cancel_orders_below_min_spread()
             if self.c_to_create_orders(proposal):
                 self.c_execute_orders_proposal(proposal)
+            if self._last_auto_trade_timestamp + self._auto_trade_interval < timestamp and self._auto_trade_value > 0:
+                self.c_auto_trade()
         finally:
             self._last_timestamp = timestamp
+
+    cdef c_auto_trade(self):
+        cdef:
+            double expiration_seconds = NaN
+            ExchangeBase market = self._market_info.market
+        price = self.get_price()
+        price = market.c_quantize_order_price(self.trading_pair, price, True)
+        size = Decimal(self._auto_trade_value) / price
+        size = market.c_quantize_order_amount(self.trading_pair, size)
+        
+        bid_order_id = self.c_buy_with_specific_market(
+            self._market_info,
+            size,
+            order_type=OrderType.LIMIT,
+            price=price,
+            expiration_seconds=expiration_seconds
+        )
+
+        ask_order_id = self.c_sell_with_specific_market(
+            self._market_info,
+            size,
+            order_type=OrderType.LIMIT,
+            price=price,
+            expiration_seconds=expiration_seconds
+        )
+        self.logger().info(f"Auto trading: size: {size}, price: {price}, bid order: {bid_order_id}, ask_order_id: {ask_order_id}")
 
     cdef object c_create_base_proposal(self):
         cdef:

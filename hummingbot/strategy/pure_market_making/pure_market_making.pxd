@@ -59,6 +59,10 @@ cdef class PureMarketMakingStrategy(StrategyBase):
 
         object _moving_price_band
 
+        double _auto_trade_value
+        double _auto_trade_interval
+
+    cdef c_auto_trade(self)
     cdef object c_get_mid_price(self)
     cdef object c_create_base_proposal(self)
     cdef tuple c_get_adjusted_available_balance(self, list orders)

@@ -445,4 +445,16 @@ pure_market_making_config_map = {
                       "split_order_levels_enabled").value,
                   type_str="str",
                   validator=validate_decimal_list),
+    "auto_trade_value":
+        ConfigVar(key="auto_trade_value",
+                  prompt="Enter the amount(quote asset) for auto trading",
+                  default=0,
+                  type_str="float",
+                  validator=lambda v: validate_decimal(v, 0, 1000, inclusive=True)),
+    "auto_trade_interval":
+        ConfigVar(key="auto_trade_interval",
+                  prompt="Enter the time interval(seconds) for auto trading",
+                  default=0,
+                  type_str="float",
+                  validator=lambda v: validate_decimal(v, 0, 3600, inclusive=True)),
 }

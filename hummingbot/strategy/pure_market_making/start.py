@@ -76,6 +76,8 @@ def start(self):
             order_override = {
                 f'split_level_{i}': order for i, order in enumerate(both_list)
             }
+        auto_trade_value = c_map.get("auto_trade_value").value
+        auto_trade_interval = c_map.get("auto_trade_interval").value
         trading_pair: str = raw_trading_pair
         maker_assets: Tuple[str, str] = self._initialize_market_assets(exchange, [trading_pair])[0]
         market_names: List[Tuple[str, List[str]]] = [(exchange, [trading_pair])]
@@ -139,7 +141,9 @@ def start(self):
             bid_order_level_spreads=bid_order_level_spreads,
             ask_order_level_spreads=ask_order_level_spreads,
             should_wait_order_cancel_confirmation=should_wait_order_cancel_confirmation,
-            moving_price_band=moving_price_band
+            moving_price_band=moving_price_band,
+            auto_trade_value=auto_trade_value,
+            auto_trade_interval=auto_trade_interval
         )
     except Exception as e:
         self.notify(str(e))
