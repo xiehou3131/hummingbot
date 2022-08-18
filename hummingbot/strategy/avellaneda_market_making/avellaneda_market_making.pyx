@@ -622,7 +622,7 @@ cdef class AvellanedaMarketMakingStrategy(StrategyBase):
 
             self.c_collect_market_variables(timestamp)
 
-            if self.c_is_algorithm_ready():
+            if self.c_is_algorithm_ready() or self._config_map.default_spread > 0:
                 if self._create_timestamp <= self._current_timestamp:
                     # Measure order book liquidity
                     self.c_measure_order_book_liquidity()
