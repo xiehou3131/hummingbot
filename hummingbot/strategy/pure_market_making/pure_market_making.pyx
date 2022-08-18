@@ -798,14 +798,14 @@ cdef class PureMarketMakingStrategy(StrategyBase):
                 if str(value[0]) in ["buy", "sell"]:
                     if str(value[0]) == "buy" and not buy_reference_price.is_nan():
                         price = buy_reference_price * (Decimal("1") - Decimal(str(value[1])) / Decimal("100"))
-                        price = market.c_quantize_order_price(self.trading_pair, price)
+                        price = market.c_quantize_order_price(self.trading_pair, price, True)
                         size = Decimal(str(value[2]))
                         size = market.c_quantize_order_amount(self.trading_pair, size)
                         if size > 0 and price > 0:
                             buys.append(PriceSize(price, size))
                     elif str(value[0]) == "sell" and not sell_reference_price.is_nan():
                         price = sell_reference_price * (Decimal("1") + Decimal(str(value[1])) / Decimal("100"))
-                        price = market.c_quantize_order_price(self.trading_pair, price)
+                        price = market.c_quantize_order_price(self.trading_pair, price, False)
                         size = Decimal(str(value[2]))
                         size = market.c_quantize_order_amount(self.trading_pair, size)
                         if size > 0 and price > 0:
@@ -814,7 +814,7 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             if not buy_reference_price.is_nan():
                 for level in range(0, self._buy_levels):
                     price = buy_reference_price * (Decimal("1") - self._bid_spread - (level * self._order_level_spread))
-                    price = market.c_quantize_order_price(self.trading_pair, price)
+                    price = market.c_quantize_order_price(self.trading_pair, price, True)
                     size = self._order_amount + (self._order_level_amount * level)
                     size = market.c_quantize_order_amount(self.trading_pair, size)
                     if size > 0:
@@ -822,7 +822,7 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             if not sell_reference_price.is_nan():
                 for level in range(0, self._sell_levels):
                     price = sell_reference_price * (Decimal("1") + self._ask_spread + (level * self._order_level_spread))
-                    price = market.c_quantize_order_price(self.trading_pair, price)
+                    price = market.c_quantize_order_price(self.trading_pair, price, False)
                     size = self._order_amount + (self._order_level_amount * level)
                     size = market.c_quantize_order_amount(self.trading_pair, size)
                     if size > 0:
@@ -1020,11 +1020,11 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             lower_buy_price = min(proposal.buys[0].price, price_above_bid)
             for i, proposed in enumerate(proposal.buys):
                 if self._split_order_levels_enabled:
-                    proposal.buys[i].price = (market.c_quantize_order_price(self.trading_pair, lower_buy_price)
+                    proposal.buys[i].price = (market.c_quantize_order_price(self.trading_pair, lower_buy_price, True)
                                               * (1 - self._bid_order_level_spreads[i] / Decimal("100"))
                                               / (1-self._bid_order_level_spreads[0] / Decimal("100")))
                     continue
-                proposal.buys[i].price = market.c_quantize_order_price(self.trading_pair, lower_buy_price) * (1 - self.order_level_spread * i)
+                proposal.buys[i].price = market.c_quantize_order_price(self.trading_pair, lower_buy_price, True) * (1 - self.order_level_spread * i)
 
         if len(proposal.sells) > 0:
             # Get the top ask price in the market using order_optimization_depth and your sell order volume
@@ -1043,11 +1043,11 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             higher_sell_price = max(proposal.sells[0].price, price_below_ask)
             for i, proposed in enumerate(proposal.sells):
                 if self._split_order_levels_enabled:
-                    proposal.sells[i].price = (market.c_quantize_order_price(self.trading_pair, higher_sell_price)
+                    proposal.sells[i].price = (market.c_quantize_order_price(self.trading_pair, higher_sell_price, False)
                                                * (1 + self._ask_order_level_spreads[i] / Decimal("100"))
                                                / (1 + self._ask_order_level_spreads[0] / Decimal("100")))
                     continue
-                proposal.sells[i].price = market.c_quantize_order_price(self.trading_pair, higher_sell_price) * (1 + self.order_level_spread * i)
+                proposal.sells[i].price = market.c_quantize_order_price(self.trading_pair, higher_sell_price, False) * (1 + self.order_level_spread * i)
 
     cdef object c_apply_add_transaction_costs(self, object proposal):
         cdef:
@@ -1056,12 +1056,12 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             fee = market.c_get_fee(self.base_asset, self.quote_asset,
                                    self._limit_order_type, TradeType.BUY, buy.size, buy.price)
             price = buy.price * (Decimal(1) - fee.percent)
-            buy.price = market.c_quantize_order_price(self.trading_pair, price)
+            buy.price = market.c_quantize_order_price(self.trading_pair, price, True)
         for sell in proposal.sells:
             fee = market.c_get_fee(self.base_asset, self.quote_asset,
                                    self._limit_order_type, TradeType.SELL, sell.size, sell.price)
             price = sell.price * (Decimal(1) + fee.percent)
-            sell.price = market.c_quantize_order_price(self.trading_pair, price)
+            sell.price = market.c_quantize_order_price(self.trading_pair, price, False)
 
     cdef c_did_fill_order(self, object order_filled_event):
         cdef:
