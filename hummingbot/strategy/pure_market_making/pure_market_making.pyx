@@ -145,6 +145,7 @@ cdef class PureMarketMakingStrategy(StrategyBase):
         self._auto_trade_interval = auto_trade_interval
         self._auto_trade_value = auto_trade_value
         self._last_auto_trade_timestamp = 0
+        self._auto_trade_order_ids = set([])
         self._status_report_interval = status_report_interval
         self._last_own_trade_price = Decimal('nan')
         self._should_wait_order_cancel_confirmation = should_wait_order_cancel_confirmation
@@ -796,6 +797,7 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             price=price,
             expiration_seconds=expiration_seconds
         )
+        self._auto_trade_order_ids.add(bid_order_id)
 
         ask_order_id = self.c_sell_with_specific_market(
             self._market_info,
@@ -804,6 +806,8 @@ cdef class PureMarketMakingStrategy(StrategyBase):
             price=price,
             expiration_seconds=expiration_seconds
         )
+        self._auto_trade_order_ids.add(ask_order_id)
+
         self.logger().info(f"Auto trading: size: {size}, price: {price}, bid order: {bid_order_id}, ask_order_id: {ask_order_id}")
 
     cdef object c_create_base_proposal(self):
@@ -1149,8 +1153,11 @@ cdef class PureMarketMakingStrategy(StrategyBase):
                 return
 
         # delay order creation by filled_order_dalay (in seconds)
-        self._create_timestamp = self._current_timestamp + self._filled_order_delay
-        self._cancel_timestamp = min(self._cancel_timestamp, self._create_timestamp)
+        if order_id in self._auto_trade_order_ids:
+            self._auto_trade_order_ids.remove(order_id)
+        else:
+            self._create_timestamp = self._current_timestamp + self._filled_order_delay
+            self._cancel_timestamp = min(self._cancel_timestamp, self._create_timestamp)
 
         self._filled_buys_balance += 1
         self._last_own_trade_price = limit_order_record.price
@@ -1189,8 +1196,11 @@ cdef class PureMarketMakingStrategy(StrategyBase):
                 return
 
         # delay order creation by filled_order_dalay (in seconds)
-        self._create_timestamp = self._current_timestamp + self._filled_order_delay
-        self._cancel_timestamp = min(self._cancel_timestamp, self._create_timestamp)
+        if order_id in self._auto_trade_order_ids:
+            self._auto_trade_order_ids.remove(order_id)
+        else:
+            self._create_timestamp = self._current_timestamp + self._filled_order_delay
+            self._cancel_timestamp = min(self._cancel_timestamp, self._create_timestamp)
 
         self._filled_sells_balance += 1
         self._last_own_trade_price = limit_order_record.price
