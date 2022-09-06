@@ -240,7 +240,6 @@ class BitmartExchange(ExchangePyBase):
                     price_step = Decimal("1") / Decimal(str(math.pow(10, price_decimals)))
                     result.append(TradingRule(trading_pair=trading_pair,
                                               min_order_size=Decimal(str(rule["base_min_size"])),
-                                              max_order_size=Decimal(str(rule["base_max_size"])),
                                               min_order_value=Decimal(str(rule["min_buy_amount"])),
                                               min_base_amount_increment=Decimal(str(rule["base_min_size"])),
                                               min_price_increment=price_step))
