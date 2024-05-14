@@ -22,7 +22,6 @@ from hummingbot.client.config.config_helpers import ClientConfigAdapter
 from hummingbot.client.settings import MAXIMUM_LOG_PANE_LINE_COUNT, MAXIMUM_OUTPUT_PANE_LINE_COUNT
 from hummingbot.client.tab.data_types import CommandTab
 from hummingbot.client.ui.custom_widgets import CustomTextArea as TextArea, FormattedTextLexer
-from hummingbot.core.gateway.status_monitor import Status as GatewayStatus
 
 HEADER = """
                                                 *,.
@@ -61,20 +60,19 @@ HEADER = """
 ██   ██ ██    ██ ██  ██  ██ ██  ██  ██ ██ ██  ██ ██ ██    ██ ██   ██ ██    ██    ██
 ██   ██  ██████  ██      ██ ██      ██ ██ ██   ████  ██████  ██████   ██████     ██
 
-=======================================================================================
-Welcome to Hummingbot, an open source software client that helps you build and run
-high-frequency trading (HFT) bots.
+======================================================================================
+Hummingbot is an open source software client that helps you build and run
+market making, arbitrage, and other high-frequency trading bots.
 
-Helpful Links:
-- Get 24/7 support: https://discord.hummingbot.io
-- Learn how to use Hummingbot: https://docs.hummingbot.io
-- Earn liquidity rewards: https://miner.hummingbot.io
+- Official repo: https://github.com/hummingbot/hummingbot
+- Join the community: https://discord.gg/hummingbot
+- Learn market making: https://hummingbot.org/botcamp
 
 Useful Commands:
 - connect     List available exchanges and add API keys to them
-- create      Create a new bot
-- import      Import an existing bot by loading the configuration file
-- help        List available commands
+- balance     See your exchange balances
+- start       Start a script or strategy
+- help        List all commands
 
 """
 
@@ -115,7 +113,7 @@ def create_timer():
         read_only=False,
         scrollbar=False,
         max_line_count=1,
-        width=20,
+        width=30,
     )
 
 
@@ -211,10 +209,9 @@ def get_strategy_file():
 def get_gateway_status():
     from hummingbot.client.hummingbot_application import HummingbotApplication
     hb = HummingbotApplication.main_application()
-    gateway_status = "RUNNING" if hb._gateway_monitor.current_status is GatewayStatus.ONLINE else "STOPPED"
-    gateway_conn_status = hb._gateway_monitor.current_connector_conn_status.name
+    gateway_status = hb._gateway_monitor.gateway_status.name
     style = "class:log_field"
-    return [(style, f"Gateway: {gateway_status}, {gateway_conn_status}")]
+    return [(style, f"Gateway: {gateway_status}")]
 
 
 def generate_layout(input_field: TextArea,

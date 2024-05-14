@@ -409,6 +409,47 @@ class ClientOrderTrackerUnitTest(unittest.TestCase):
         self.assertEqual(event_logged.trading_pair, order.trading_pair)
         self.assertEqual(event_logged.type, order.order_type)
 
+    def test_process_order_update_with_pending_status_does_not_trigger_order_creation_event(self):
+        order: InFlightOrder = InFlightOrder(
+            client_order_id="someClientOrderId",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            amount=Decimal("1000.0"),
+            creation_timestamp=1640001112.0,
+            price=Decimal("1.0"),
+        )
+        self.tracker.start_tracking_order(order)
+
+        order_creation_update: OrderUpdate = OrderUpdate(
+            client_order_id=order.client_order_id,
+            exchange_order_id="someExchangeOrderId",
+            trading_pair=self.trading_pair,
+            update_timestamp=1,
+            new_state=order.current_state,
+        )
+
+        update_future = self.tracker.process_order_update(order_creation_update)
+        self.async_run_with_timeout(update_future)
+
+        updated_order: InFlightOrder = self.tracker.fetch_tracked_order(order.client_order_id)
+
+        # Check order update has been successfully applied
+        self.assertEqual(updated_order.exchange_order_id, order_creation_update.exchange_order_id)
+        self.assertTrue(updated_order.exchange_order_id_update_event.is_set())
+        self.assertTrue(updated_order.is_pending_create)
+
+        self.assertFalse(
+            self._is_logged(
+                "INFO",
+                f"Created {order.order_type.name} {order.trade_type.name} order {order.client_order_id} for "
+                f"{order.amount} {order.trading_pair}.",
+            )
+        )
+
+        # Check that Buy/SellOrderCreatedEvent has not been triggered.
+        self.assertEqual(0, len(self.buy_order_created_logger.event_log))
+
     def test_process_order_update_trigger_order_cancelled_event(self):
         order: InFlightOrder = InFlightOrder(
             client_order_id="someClientOrderId",
@@ -746,6 +787,8 @@ class ClientOrderTrackerUnitTest(unittest.TestCase):
         self.assertEqual(1, self.tracker._order_not_found_records[order.client_order_id])
 
     def test_process_order_not_found_exceeded_limit(self):
+        self.tracker = ClientOrderTracker(connector=self.connector, lost_order_count_limit=1)
+
         order: InFlightOrder = InFlightOrder(
             client_order_id="someClientOrderId",
             exchange_order_id="someExchangeOrderId",
@@ -759,7 +802,7 @@ class ClientOrderTrackerUnitTest(unittest.TestCase):
         )
         self.tracker.start_tracking_order(order)
 
-        self.tracker._order_not_found_records[order.client_order_id] = 10
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
         self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
 
         self.assertNotIn(order.client_order_id, self.tracker.active_orders)
@@ -842,7 +885,7 @@ class ClientOrderTrackerUnitTest(unittest.TestCase):
         trade_update: TradeUpdate = TradeUpdate(
             trade_id="1",
             client_order_id=order.client_order_id,
-            exchange_order_id=order.exchange_order_id,
+            exchange_order_id="someExchangeOrderId",
             trading_pair=order.trading_pair,
             fill_price=Decimal("1100"),
             fill_base_amount=order.amount,
@@ -888,3 +931,204 @@ class ClientOrderTrackerUnitTest(unittest.TestCase):
 
         complete_event: BuyOrderCompletedEvent = self.buy_order_completed_logger.event_log[0]
         self.assertGreaterEqual(complete_event.timestamp, 1640001120)
+
+    def test_access_lost_orders(self):
+        self.tracker = ClientOrderTracker(connector=self.connector, lost_order_count_limit=1)
+
+        order: InFlightOrder = InFlightOrder(
+            client_order_id="someClientOrderId",
+            exchange_order_id="someExchangeOrderId",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            amount=Decimal("1000.0"),
+            creation_timestamp=1640001112.0,
+            price=Decimal("1.0"),
+            initial_state=OrderState.OPEN,
+        )
+        self.tracker.start_tracking_order(order)
+
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+
+        self.assertEqual(0, len(self.tracker.lost_orders))
+
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+
+        self.assertEqual(1, len(self.tracker.lost_orders))
+        self.assertIn(order.client_order_id, self.tracker.lost_orders)
+
+    def test_lost_orders_returned_in_all_fillable_orders(self):
+        self.tracker = ClientOrderTracker(connector=self.connector, lost_order_count_limit=1)
+
+        order: InFlightOrder = InFlightOrder(
+            client_order_id="someClientOrderId",
+            exchange_order_id="someExchangeOrderId",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            amount=Decimal("1000.0"),
+            creation_timestamp=1640001112.0,
+            price=Decimal("1.0"),
+            initial_state=OrderState.OPEN,
+        )
+        self.tracker.start_tracking_order(order)
+
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+
+        self.assertIn(order.client_order_id, self.tracker.all_fillable_orders)
+        self.assertNotIn(order.client_order_id, self.tracker.cached_orders)
+
+    def test_lost_orders_returned_in_all_updatable_orders(self):
+        self.tracker = ClientOrderTracker(connector=self.connector, lost_order_count_limit=1)
+
+        order: InFlightOrder = InFlightOrder(
+            client_order_id="someClientOrderId",
+            exchange_order_id="someExchangeOrderId",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            amount=Decimal("1000.0"),
+            creation_timestamp=1640001112.0,
+            price=Decimal("1.0"),
+            initial_state=OrderState.OPEN,
+        )
+        self.tracker.start_tracking_order(order)
+
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+
+        self.assertIn(order.client_order_id, self.tracker.all_updatable_orders)
+        self.assertNotIn(order.client_order_id, self.tracker.cached_orders)
+
+    def test_lost_order_removed_when_fully_filled(self):
+        self.tracker = ClientOrderTracker(connector=self.connector, lost_order_count_limit=1)
+
+        order: InFlightOrder = InFlightOrder(
+            client_order_id="someClientOrderId",
+            exchange_order_id="someExchangeOrderId",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            amount=Decimal("1000.0"),
+            creation_timestamp=1640001112.0,
+            price=Decimal("1.0"),
+            initial_state=OrderState.OPEN,
+        )
+        self.tracker.start_tracking_order(order)
+
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+
+        self.assertIn(order.client_order_id, self.tracker.lost_orders)
+
+        order_completion_update: OrderUpdate = OrderUpdate(
+            client_order_id=order.client_order_id,
+            trading_pair=self.trading_pair,
+            update_timestamp=2,
+            new_state=OrderState.FILLED,
+        )
+
+        self.async_run_with_timeout(self.tracker.process_order_update(order_update=order_completion_update))
+
+        self.assertTrue(order.is_failure)
+        self.assertNotIn(order.client_order_id, self.tracker.lost_orders)
+
+    def test_lost_order_removed_when_canceled(self):
+        self.tracker = ClientOrderTracker(connector=self.connector, lost_order_count_limit=1)
+
+        order: InFlightOrder = InFlightOrder(
+            client_order_id="someClientOrderId",
+            exchange_order_id="someExchangeOrderId",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            amount=Decimal("1000.0"),
+            creation_timestamp=1640001112.0,
+            price=Decimal("1.0"),
+            initial_state=OrderState.OPEN,
+        )
+        self.tracker.start_tracking_order(order)
+
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+
+        self.assertIn(order.client_order_id, self.tracker.lost_orders)
+
+        order_completion_update: OrderUpdate = OrderUpdate(
+            client_order_id=order.client_order_id,
+            trading_pair=self.trading_pair,
+            update_timestamp=2,
+            new_state=OrderState.CANCELED,
+        )
+
+        self.async_run_with_timeout(self.tracker.process_order_update(order_update=order_completion_update))
+
+        self.assertTrue(order.is_failure)
+        self.assertNotIn(order.client_order_id, self.tracker.lost_orders)
+
+    def test_lost_order_not_removed_when_updated_with_non_final_states(self):
+        self.tracker = ClientOrderTracker(connector=self.connector, lost_order_count_limit=1)
+
+        order: InFlightOrder = InFlightOrder(
+            client_order_id="someClientOrderId",
+            exchange_order_id="someExchangeOrderId",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            amount=Decimal("1000.0"),
+            creation_timestamp=1640001112.0,
+            price=Decimal("1.0"),
+            initial_state=OrderState.OPEN,
+        )
+        self.tracker.start_tracking_order(order)
+
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+        self.async_run_with_timeout(self.tracker.process_order_not_found(order.client_order_id))
+
+        self.assertIn(order.client_order_id, self.tracker.lost_orders)
+
+        update: OrderUpdate = OrderUpdate(
+            client_order_id=order.client_order_id,
+            trading_pair=self.trading_pair,
+            update_timestamp=2,
+            new_state=OrderState.OPEN,
+        )
+
+        self.async_run_with_timeout(self.tracker.process_order_update(order_update=update))
+
+        self.assertTrue(order.is_failure)
+        self.assertIn(order.client_order_id, self.tracker.lost_orders)
+
+        update: OrderUpdate = OrderUpdate(
+            client_order_id=order.client_order_id,
+            trading_pair=self.trading_pair,
+            update_timestamp=3,
+            new_state=OrderState.PARTIALLY_FILLED,
+        )
+
+        self.async_run_with_timeout(self.tracker.process_order_update(order_update=update))
+
+        self.assertTrue(order.is_failure)
+        self.assertIn(order.client_order_id, self.tracker.lost_orders)
+
+        update: OrderUpdate = OrderUpdate(
+            client_order_id=order.client_order_id,
+            trading_pair=self.trading_pair,
+            update_timestamp=3,
+            new_state=OrderState.PENDING_CANCEL,
+        )
+
+        self.async_run_with_timeout(self.tracker.process_order_update(order_update=update))
+
+        self.assertTrue(order.is_failure)
+        self.assertIn(order.client_order_id, self.tracker.lost_orders)
+
+    def test_setting_lost_order_count_limit(self):
+        self.tracker.lost_order_count_limit = 1
+
+        self.assertEqual(1, self.tracker.lost_order_count_limit)
+
+        self.tracker.lost_order_count_limit = 2
+
+        self.assertEqual(2, self.tracker.lost_order_count_limit)

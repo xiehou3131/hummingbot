@@ -1,30 +1,37 @@
 import asyncio
+import importlib
+import inspect
 import platform
+import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
 import pandas as pd
+import yaml
 
 import hummingbot.client.settings as settings
 from hummingbot import init_logging
 from hummingbot.client.command.gateway_api_manager import GatewayChainApiManager
-from hummingbot.client.command.rate_command import RateCommand
+from hummingbot.client.command.gateway_command import GatewayCommand
+from hummingbot.client.config.config_data_types import BaseClientModel
 from hummingbot.client.config.config_helpers import get_strategy_starter_file
 from hummingbot.client.config.config_validators import validate_bool
 from hummingbot.client.config.config_var import ConfigVar
 from hummingbot.client.performance import PerformanceMetrics
-from hummingbot.connector.connector_status import get_connector_status, warning_messages
 from hummingbot.core.clock import Clock, ClockMode
-from hummingbot.core.gateway.status_monitor import Status
 from hummingbot.core.rate_oracle.rate_oracle import RateOracle
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.exceptions import OracleRateUnavailable
+from hummingbot.exceptions import InvalidScriptModule, OracleRateUnavailable
+from hummingbot.strategy.directional_strategy_base import DirectionalStrategyBase
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
-from hummingbot.user.user_balances import UserBalances
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 if TYPE_CHECKING:
-    from hummingbot.client.hummingbot_application import HummingbotApplication
+    from hummingbot.client.hummingbot_application import HummingbotApplication  # noqa: F401
+
+
+GATEWAY_READY_TIMEOUT = 300  # seconds
 
 
 class StartCommand(GatewayChainApiManager):
@@ -43,19 +50,30 @@ class StartCommand(GatewayChainApiManager):
             else:
                 return func(*args, **kwargs)
 
+    def _strategy_uses_gateway_connector(self, required_exchanges: Set[str]) -> bool:
+        exchange_settings: List[settings.ConnectorSetting] = [
+            settings.AllConnectorSettings.get_connector_settings().get(e, None)
+            for e in required_exchanges
+        ]
+        return any([s.uses_gateway_generic_connector()
+                    for s in exchange_settings])
+
     def start(self,  # type: HummingbotApplication
               log_level: Optional[str] = None,
-              restore: Optional[bool] = False,
-              script: Optional[str] = None):
+              script: Optional[str] = None,
+              conf: Optional[str] = None,
+              is_quickstart: Optional[bool] = False):
         if threading.current_thread() != threading.main_thread():
-            self.ev_loop.call_soon_threadsafe(self.start, log_level, restore)
+            self.ev_loop.call_soon_threadsafe(self.start, log_level, script)
             return
-        safe_ensure_future(self.start_check(log_level, restore, script), loop=self.ev_loop)
+        safe_ensure_future(self.start_check(log_level, script, conf, is_quickstart), loop=self.ev_loop)
 
     async def start_check(self,  # type: HummingbotApplication
                           log_level: Optional[str] = None,
-                          restore: Optional[bool] = False,
-                          strategy_file_name: Optional[str] = None):
+                          script: Optional[str] = None,
+                          conf: Optional[str] = None,
+                          is_quickstart: Optional[bool] = False):
+
         if self._in_start_check or (self.strategy_task is not None and not self.strategy_task.done()):
             self.notify('The bot is already running - please run "stop" first')
             return
@@ -70,10 +88,22 @@ class StartCommand(GatewayChainApiManager):
                 self._in_start_check = False
                 return
 
-        if strategy_file_name:
-            file_name = strategy_file_name.split(".")[0]
-            self.strategy_file_name = file_name
+        if self.strategy_file_name and self.strategy_name and is_quickstart:
+            if self._strategy_uses_gateway_connector(settings.required_exchanges):
+                try:
+                    await asyncio.wait_for(self._gateway_monitor.ready_event.wait(), timeout=GATEWAY_READY_TIMEOUT)
+                except asyncio.TimeoutError:
+                    self.notify(f"TimeoutError waiting for gateway service to go online... Please ensure Gateway is configured correctly."
+                                f"Unable to start strategy {self.strategy_name}. ")
+                    self._in_start_check = False
+                    self.strategy_name = None
+                    self.strategy_file_name = None
+                    raise
+
+        if script:
+            file_name = script.split(".")[0]
             self.strategy_name = file_name
+            self.strategy_file_name = conf if conf else file_name
         elif not await self.status_check_all(notify_success=False):
             self.notify("Status checks failed. Start aborted.")
             self._in_start_check = False
@@ -105,8 +135,6 @@ class StartCommand(GatewayChainApiManager):
 
         for exchange in settings.required_exchanges:
             connector: str = str(exchange)
-            status: str = get_connector_status(connector)
-            warning_msg: Optional[str] = warning_messages.get(connector, None)
 
             # confirm gateway connection
             conn_setting: settings.ConnectorSetting = settings.AllConnectorSettings.get_connector_settings()[connector]
@@ -116,24 +144,16 @@ class StartCommand(GatewayChainApiManager):
                     data: List[List[str]] = [
                         ["chain", connector_details['chain']],
                         ["network", connector_details['network']],
-                        ["wallet_address", connector_details['wallet_address']]
+                        ["address", connector_details['address']]
                     ]
 
                     # check for node URL
-                    node_url_works: bool = await self._test_node_url_from_gateway_config(connector_details['chain'], connector_details['network'])
-                    if not node_url_works:
-                        node_url: str = await self._get_node_url(connector_details['chain'], connector_details['network'])
-                        await self._update_gateway_chain_network_node_url(connector_details['chain'], connector_details['network'], node_url)
-                        self.notify("Please wait for gateway to restart.")
-                        # wait for gateway to restart, config update causes gateway to restart
-                        await self._gateway_monitor.wait_for_online_status()
-                        if self._gateway_monitor.current_status == Status.OFFLINE:
-                            raise Exception("Lost contact with gateway after updating the config.")
+                    await self._test_node_url_from_gateway_config(connector_details['chain'], connector_details['network'])
 
-                    await UserBalances.instance().update_exchange_balance(connector, self.client_config_map)
+                    await GatewayCommand.update_exchange_balances(self, connector, self.client_config_map)
                     balances: List[str] = [
                         f"{str(PerformanceMetrics.smart_round(v, 8))} {k}"
-                        for k, v in UserBalances.instance().all_balances(connector).items()
+                        for k, v in GatewayCommand.all_balance(self, connector).items()
                     ]
                     data.append(["balances", ""])
                     for bal in balances:
@@ -141,66 +161,98 @@ class StartCommand(GatewayChainApiManager):
                     wallet_df: pd.DataFrame = pd.DataFrame(data=data, columns=["", f"{connector} configuration"])
                     self.notify(wallet_df.to_string(index=False))
 
-                    self.app.clear_input()
-                    self.placeholder_mode = True
-                    use_configuration = await self.app.prompt(prompt="Do you want to continue? (Yes/No) >>> ")
-                    self.placeholder_mode = False
-                    self.app.change_prompt(prompt=">>> ")
+                    if not is_quickstart:
+                        self.app.clear_input()
+                        self.placeholder_mode = True
+                        use_configuration = await self.app.prompt(prompt="Do you want to continue? (Yes/No) >>> ")
+                        self.placeholder_mode = False
+                        self.app.change_prompt(prompt=">>> ")
 
-                    if use_configuration in ["N", "n", "No", "no"]:
-                        self._in_start_check = False
-                        return
+                        if use_configuration in ["N", "n", "No", "no"]:
+                            self._in_start_check = False
+                            return
 
-                    if use_configuration not in ["Y", "y", "Yes", "yes"]:
-                        self.notify("Invalid input. Please execute the `start` command again.")
-                        self._in_start_check = False
-                        return
-
-            # Display custom warning message for specific connectors
-            elif warning_msg is not None:
-                self.notify(f"\nConnector status: {status}\n"
-                            f"{warning_msg}")
-
-            # Display warning message if the exchange connector has outstanding issues or not working
-            elif not status.endswith("GREEN"):
-                self.notify(f"\nConnector status: {status}. This connector has one or more issues.\n"
-                            "Refer to our Github page for more info: https://github.com/hummingbot/hummingbot")
+                        if use_configuration not in ["Y", "y", "Yes", "yes"]:
+                            self.notify("Invalid input. Please execute the `start` command again.")
+                            self._in_start_check = False
+                            return
 
         self.notify(f"\nStatus check complete. Starting '{self.strategy_name}' strategy...")
-        await self.start_market_making(restore)
+        await self.start_market_making()
 
         self._in_start_check = False
 
         # We always start the RateOracle. It is required for PNL calculation.
         RateOracle.get_instance().start()
+        if self._mqtt:
+            self._mqtt.patch_loggers()
 
     def start_script_strategy(self):
-        script_strategy = ScriptStrategyBase.load_script_class(self.strategy_file_name)
+        script_strategy, config = self.load_script_class()
         markets_list = []
         for conn, pairs in script_strategy.markets.items():
             markets_list.append((conn, list(pairs)))
         self._initialize_markets(markets_list)
-        self.strategy = script_strategy(self.markets)
+        if config:
+            self.strategy = script_strategy(self.markets, config)
+        else:
+            self.strategy = script_strategy(self.markets)
+
+    def load_script_class(self):
+        """
+        Imports the script module based on its name (module file name) and returns the loaded script class
+
+        :param script_name: name of the module where the script class is defined
+        """
+        script_name = self.strategy_name
+        config = None
+        module = sys.modules.get(f"{settings.SCRIPT_STRATEGIES_MODULE}.{script_name}")
+        if module is not None:
+            script_module = importlib.reload(module)
+        else:
+            script_module = importlib.import_module(f".{script_name}", package=settings.SCRIPT_STRATEGIES_MODULE)
+        try:
+            script_class = next((member for member_name, member in inspect.getmembers(script_module)
+                                 if inspect.isclass(member) and
+                                 issubclass(member, ScriptStrategyBase) and
+                                 member not in [ScriptStrategyBase, DirectionalStrategyBase, StrategyV2Base]))
+        except StopIteration:
+            raise InvalidScriptModule(f"The module {script_name} does not contain any subclass of ScriptStrategyBase")
+        if self.strategy_name != self.strategy_file_name:
+            try:
+                config_class = next((member for member_name, member in inspect.getmembers(script_module)
+                                    if inspect.isclass(member) and
+                                    issubclass(member, BaseClientModel) and member not in [BaseClientModel, StrategyV2ConfigBase]))
+                config = config_class(**self.load_script_yaml_config(config_file_path=self.strategy_file_name))
+                script_class.init_markets(config)
+            except StopIteration:
+                raise InvalidScriptModule(f"The module {script_name} does not contain any subclass of BaseModel")
+
+        return script_class, config
+
+    @staticmethod
+    def load_script_yaml_config(config_file_path: str) -> dict:
+        with open(settings.SCRIPT_STRATEGY_CONF_DIR_PATH / config_file_path, 'r') as file:
+            return yaml.safe_load(file)
 
     def is_current_strategy_script_strategy(self) -> bool:
-        script_file_name = settings.SCRIPT_STRATEGIES_PATH / f"{self.strategy_file_name}.py"
+        script_file_name = settings.SCRIPT_STRATEGIES_PATH / f"{self.strategy_name}.py"
         return script_file_name.exists()
 
     async def start_market_making(self,  # type: HummingbotApplication
-                                  restore: Optional[bool] = False):
+                                  ):
         try:
             self.start_time = time.time() * 1e3  # Time in milliseconds
-            self.clock = Clock(ClockMode.REALTIME)
+            tick_size = self.client_config_map.tick_size
+            self.logger().info(f"Creating the clock with tick size: {tick_size}")
+            self.clock = Clock(ClockMode.REALTIME, tick_size=tick_size)
             for market in self.markets.values():
                 if market is not None:
                     self.clock.add_iterator(market)
                     self.markets_recorder.restore_market_states(self.strategy_file_name, market)
                     if len(market.limit_orders) > 0:
-                        if restore is False:
-                            self.notify(f"Canceling dangling limit orders on {market.name}...")
-                            await market.cancel_all(5.0)
-                        else:
-                            self.notify(f"Restored {len(market.limit_orders)} limit orders on {market.name}...")
+                        self.notify(f"Canceling dangling limit orders on {market.name}...")
+                        await market.cancel_all(10.0)
             if self.strategy:
                 self.clock.add_iterator(self.strategy)
             try:
@@ -241,7 +293,7 @@ class StartCommand(GatewayChainApiManager):
             self.placeholder_mode = True
             self.app.hide_input = True
             for pair in settings.rate_oracle_pairs:
-                msg = await RateCommand.oracle_rate_msg(pair)
+                msg = await self.oracle_rate_msg(pair)
                 self.notify("\nRate Oracle:\n" + msg)
             config = ConfigVar(key="confirm_oracle_use",
                                type_str="bool",

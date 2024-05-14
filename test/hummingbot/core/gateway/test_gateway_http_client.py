@@ -1,17 +1,17 @@
-from aiounittest import async_test
-from aiohttp import ClientSession
 import asyncio
+import unittest
 from contextlib import ExitStack
 from decimal import Decimal
 from os.path import join, realpath
-from typing import List, Dict, Any
-import unittest
+from test.mock.http_recorder import HttpPlayer
+from typing import Any, Dict, List
 from unittest.mock import patch
+
+from aiohttp import ClientSession
+from aiounittest import async_test
 
 from hummingbot.core.event.events import TradeType
 from hummingbot.core.gateway.gateway_http_client import GatewayHttpClient
-
-from test.mock.http_recorder import HttpPlayer
 
 ev_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 
@@ -77,7 +77,7 @@ class GatewayHttpClientUnitTest(unittest.TestCase):
 
         uniswap: Dict[str, Any] = result["connectors"][0]
         self.assertEqual("uniswap", uniswap["name"])
-        self.assertEqual(["EVM_AMM"], uniswap["trading_type"])
+        self.assertEqual(["AMM"], uniswap["trading_type"])
 
     @async_test(loop=ev_loop)
     async def test_get_configuration(self):
@@ -207,3 +207,18 @@ class GatewayHttpClientUnitTest(unittest.TestCase):
         self.assertEqual("1000000000000000000000", result["rawAmount"])
         self.assertEqual("0xc7287236f64484b476cfbec0fd21bc49d85f8850c8885665003928a122041e18",      # noqa: mock
                          result["txHash"])
+
+    @async_test(loop=ev_loop)
+    async def test_successful_wallet_sign(self):
+        result: Dict[str, Any] = await GatewayHttpClient.get_instance().wallet_sign(
+            chain="avalanche",
+            network="dexalot",
+            address="0x010216bB52E46807a07d0101Bb828bA547534F37",  # noqa: mock
+            message="dexalot",
+        )
+        self.assertIn("signature", result)
+        self.assertEqual(
+            result["signature"],
+            "0x7e26cf881393f098dd8ff1adf459c01414c28e30fb05e6f2b2d5d0e2e284234b5964d4134cab95affc2219"  # noqa: mock
+            "55a4956ce8f5ed3c5a80e94143808063b26e7774421f",
+        )  # noqa: mock
