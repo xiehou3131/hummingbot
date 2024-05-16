@@ -114,6 +114,22 @@ class MexoExchange(ExchangePyBase):
     def supported_order_types(self):
         return [OrderType.LIMIT, OrderType.LIMIT_MAKER]
 
+    def _is_request_exception_related_to_time_synchronizer(self, request_exception: Exception):
+        error_description = str(request_exception)
+        is_time_synchronizer_related = ("-1021" in error_description
+                                        and "Timestamp for this request" in error_description)
+        return is_time_synchronizer_related
+
+    def _is_order_not_found_during_status_update_error(self, status_update_exception: Exception) -> bool:
+        return str(CONSTANTS.ORDER_NOT_EXIST_ERROR_CODE) in str(
+            status_update_exception
+        ) and CONSTANTS.ORDER_NOT_EXIST_MESSAGE in str(status_update_exception)
+
+    def _is_order_not_found_during_cancelation_error(self, cancelation_exception: Exception) -> bool:
+        return str(CONSTANTS.UNKNOWN_ORDER_ERROR_CODE) in str(
+            cancelation_exception
+        ) and CONSTANTS.UNKNOWN_ORDER_MESSAGE in str(cancelation_exception)
+
     def _create_web_assistants_factory(self) -> WebAssistantsFactory:
         return web_utils.build_api_factory(
             throttler=self._throttler,
@@ -465,6 +481,65 @@ class MexoExchange(ExchangePyBase):
                                 exchange_trade_id=str(trade["id"])
                             ))
                         self.logger().info(f"Recreating missing trade in TradeFill: {trade}")
+
+    async def _all_trade_updates_for_order(self, order: InFlightOrder) -> List[TradeUpdate]:
+        trade_updates = []
+
+        if order.exchange_order_id is not None:
+            exchange_order_id = int(order.exchange_order_id)
+            trading_pair = await self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
+            all_fills_response = await self._api_get(
+                path_url=CONSTANTS.MY_TRADES_PATH_URL,
+                params={
+                    "symbol": trading_pair,
+                    "orderId": exchange_order_id
+                },
+                is_auth_required=True,
+                limit_id=CONSTANTS.MY_TRADES_PATH_URL)
+
+            for trade in all_fills_response:
+                exchange_order_id = str(trade["orderId"])
+                fee = TradeFeeBase.new_spot_fee(
+                    fee_schema=self.trade_fee_schema(),
+                    trade_type=order.trade_type,
+                    percent_token=trade["commissionAsset"],
+                    flat_fees=[TokenAmount(amount=Decimal(trade["commission"]), token=trade["commissionAsset"])]
+                )
+                trade_update = TradeUpdate(
+                    trade_id=str(trade["id"]),
+                    client_order_id=order.client_order_id,
+                    exchange_order_id=exchange_order_id,
+                    trading_pair=trading_pair,
+                    fee=fee,
+                    fill_base_amount=Decimal(trade["qty"]),
+                    fill_quote_amount=Decimal(trade["quoteQty"]),
+                    fill_price=Decimal(trade["price"]),
+                    fill_timestamp=trade["time"] * 1e-3,
+                )
+                trade_updates.append(trade_update)
+
+        return trade_updates
+
+    async def _request_order_status(self, tracked_order: InFlightOrder) -> OrderUpdate:
+        trading_pair = await self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
+        updated_order_data = await self._api_get(
+            path_url=CONSTANTS.ORDER_PATH_URL,
+            params={
+                "symbol": trading_pair,
+                "origClientOrderId": tracked_order.client_order_id},
+            is_auth_required=True)
+
+        new_state = CONSTANTS.ORDER_STATE[updated_order_data["status"]]
+
+        order_update = OrderUpdate(
+            client_order_id=tracked_order.client_order_id,
+            exchange_order_id=str(updated_order_data["orderId"]),
+            trading_pair=tracked_order.trading_pair,
+            update_timestamp=updated_order_data["updateTime"] * 1e-3,
+            new_state=new_state,
+        )
+
+        return order_update
 
     async def _update_order_status(self):
         # This is intended to be a backup measure to close straggler orders, in case Mexo's user stream events

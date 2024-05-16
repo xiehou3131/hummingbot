@@ -92,3 +92,8 @@ RATE_LIMITS = [
               linked_limits=[LinkedLimitWeightPair(REQUEST_WEIGHT, 1),
                              LinkedLimitWeightPair(ORDERS, 1)]),
 ]
+
+ORDER_NOT_EXIST_ERROR_CODE = -2013
+ORDER_NOT_EXIST_MESSAGE = "Order does not exist"
+UNKNOWN_ORDER_ERROR_CODE = -2011
+UNKNOWN_ORDER_MESSAGE = "Unknown order sent"
