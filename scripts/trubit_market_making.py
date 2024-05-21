@@ -1,5 +1,8 @@
 import os
+import time
+import random
 from decimal import Decimal
+from enum import Enum
 from typing import Dict, List, Set
 
 from pydantic import Field, validator
@@ -15,6 +18,11 @@ from hummingbot.smart_components.executors.position_executor.data_types import (
 )
 from hummingbot.smart_components.models.executor_actions import CreateExecutorAction, StopExecutorAction
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
+
+class StrategyState(Enum):
+    Paused = 1
+    Opening = 2
+    Error = 3
 
 
 class PMMWithPositionExecutorConfig(StrategyV2ConfigBase):
@@ -40,33 +48,45 @@ class PMMWithPositionExecutorConfig(StrategyV2ConfigBase):
     )
 
     trading_pair: str = Field(
-        default="BTC-USDT",
+        default="CFX-USDT",
         client_data=ClientFieldData(
             prompt_on_new=True,
             prompt=lambda mi: "Enter the trading_pair:",
         )
     )
 
-    # order_amount_quote: Decimal = Field(
-    #     default=30, gt=0,
-    #     client_data=ClientFieldData(
-    #         prompt=lambda mi: "Enter the amount of quote asset to be used per order (e.g. 30): ",
-    #         prompt_on_new=True))
-    # executor_refresh_time: int = Field(
-    #     default=20, gt=0,
-    #     client_data=ClientFieldData(
-    #         prompt=lambda mi: "Enter the time in seconds to refresh the executor (e.g. 20): ",
-    #         prompt_on_new=True))
-    # spread: Decimal = Field(
-    #     default=Decimal("0.003"), gt=0,
-    #     client_data=ClientFieldData(
-    #         prompt=lambda mi: "Enter the spread (e.g. 0.003): ",
-    #         prompt_on_new=True))
-    # leverage: int = Field(
-    #     default=1, gt=0,
-    #     client_data=ClientFieldData(
-    #         prompt=lambda mi: "Enter the leverage (e.g. 20): ",
-    #         prompt_on_new=True))
+    leverage: int = Field(
+        default=1, gt=0,
+        client_data=ClientFieldData(
+            prompt_on_new=True,
+            prompt=lambda mi: "Enter the leverage (e.g. 20): "
+        )
+    )
+
+    order_amount_base: Decimal = Field(
+        default=30, gt=0,
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter the amount of base asset to be used per order (e.g. 30): ",
+            prompt_on_new=True))
+    
+    executor_refresh_time: int = Field(
+        default=20, gt=0,
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter the time in seconds to refresh the executor (e.g. 20): ",
+            prompt_on_new=True))
+    
+    spread: Decimal = Field(
+        default=Decimal("0.0001"), gt=0,
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter the spread (e.g. 0.003): ",
+            prompt_on_new=True))
+    
+    level: Decimal = Field(
+        default=Decimal("5"), gt=1,
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter the level (e.g. 5): ",
+            prompt_on_new=True))
+    
     # position_mode: PositionMode = Field(
     #     default="HEDGE",
     #     client_data=ClientFieldData(
@@ -74,53 +94,12 @@ class PMMWithPositionExecutorConfig(StrategyV2ConfigBase):
     #         prompt_on_new=True
     #     )
     # )
-    # # Triple Barrier Configuration
-    # stop_loss: Decimal = Field(
-    #     default=Decimal("0.03"), gt=0,
-    #     client_data=ClientFieldData(
-    #         prompt=lambda mi: "Enter the stop loss (as a decimal, e.g., 0.03 for 3%): ",
-    #         prompt_on_new=True))
-    # take_profit: Decimal = Field(
-    #     default=Decimal("0.01"), gt=0,
-    #     client_data=ClientFieldData(
-    #         prompt=lambda mi: "Enter the take profit (as a decimal, e.g., 0.01 for 1%): ",
-    #         prompt_on_new=True))
-    # time_limit: int = Field(
-    #     default=60 * 45, gt=0,
-    #     client_data=ClientFieldData(
-    #         prompt=lambda mi: "Enter the time limit in seconds (e.g., 2700 for 45 minutes): ",
-    #         prompt_on_new=True))
-    # take_profit_order_type: OrderType = Field(
-    #     default="LIMIT",
-    #     client_data=ClientFieldData(
-    #         prompt=lambda mi: "Enter the order type for taking profit (LIMIT/MARKET): ",
-    #         prompt_on_new=True))
 
-    # @validator('take_profit_order_type', pre=True, allow_reuse=True)
-    # def validate_order_type(cls, v) -> OrderType:
-    #     if isinstance(v, OrderType):
-    #         return v
-    #     elif isinstance(v, str):
-    #         if v.upper() in OrderType.__members__:
-    #             return OrderType[v.upper()]
-    #     elif isinstance(v, int):
-    #         try:
-    #             return OrderType(v)
-    #         except ValueError:
-    #             pass
-    #     raise ValueError(f"Invalid order type: {v}. Valid options are: {', '.join(OrderType.__members__)}")
-
-    # @property
-    # def triple_barrier_config(self) -> TripleBarrierConfig:
-    #     return TripleBarrierConfig(
-    #         stop_loss=self.stop_loss,
-    #         take_profit=self.take_profit,
-    #         time_limit=self.time_limit,
-    #         open_order_type=OrderType.LIMIT,
-    #         take_profit_order_type=self.take_profit_order_type,
-    #         stop_loss_order_type=OrderType.MARKET,  # Defaulting to MARKET as per requirement
-    #         time_limit_order_type=OrderType.MARKET  # Defaulting to MARKET as per requirement
-    #     )
+    @property
+    def triple_barrier_config(self) -> TripleBarrierConfig:
+        return TripleBarrierConfig(
+            open_order_type=OrderType.LIMIT,
+        )
 
     # # @validator('position_mode', pre=True, allow_reuse=True)
     # # def validate_position_mode(cls, v: str) -> PositionMode:
@@ -130,10 +109,11 @@ class PMMWithPositionExecutorConfig(StrategyV2ConfigBase):
  
 
 class PMMSingleLevel(StrategyV2Base):
+    test = 0
 
     @classmethod
     def get_trading_pair_for_connector(cls, token, connector):
-        return "BTC-USDT"
+        return "CFX-USDT"
 
     @classmethod
     def init_markets(cls, config: PMMWithPositionExecutorConfig):
@@ -146,6 +126,9 @@ class PMMSingleLevel(StrategyV2Base):
     def __init__(self, connectors: Dict[str, ConnectorBase], config: PMMWithPositionExecutorConfig):
         super().__init__(connectors, config)
         self.config = config  # Only for type checking
+
+        self._strategy_state = StrategyState.Opening
+        self._last_trade_timestamp = 0
 
     def start(self, clock: Clock, timestamp: float) -> None:
         """
@@ -162,65 +145,76 @@ class PMMSingleLevel(StrategyV2Base):
         """
         create_actions = []
 
-        price = Decimal(self.market_data_provider.get_price_for_quote_volume(
-            connector_name=self.config.price_feeder_connector_name,
-            trading_pair=self.config.trading_pair,
-            quote_volume=Decimal("100.0"),
-            is_buy=TradeType.BUY,
-        ).result_price)
+        if self._strategy_state == StrategyState.Opening:
+            mid_price = self.connectors[self.config.price_feeder_connector_name].get_mid_price(self.config.trading_pair)
+            up_price = Decimal(int((mid_price + Decimal("0.0001")) * Decimal("10000")) / 10000)
+            down_price = Decimal(int(mid_price * Decimal("10000")) / 10000)
+            order_price = random.choice([up_price, down_price])
 
-        print(price)
-        # all_executors = self.get_all_executors()
-        # active_buy_position_executors = self.filter_executors(
-        #     executors=all_executors,
-        #     filter_func=lambda x: x.side == TradeType.BUY and x.type == "position_executor" and x.is_active)
+            create_actions.append(CreateExecutorAction(
+                    executor_config=PositionExecutorConfig(
+                        timestamp=self.current_timestamp,
+                        trading_pair=self.config.trading_pair,
+                        connector_name=self.config.market_maker_connector_name,
+                        side=TradeType.BUY,
+                        amount=self.config.order_amount_base,
+                        entry_price=order_price,
+                        triple_barrier_config=self.config.triple_barrier_config,
+                        leverage=self.config.leverage
+                    )
+                ))
+            
+            create_actions.append(CreateExecutorAction(
+                    executor_config=PositionExecutorConfig(
+                        timestamp=self.current_timestamp,
+                        trading_pair=self.config.trading_pair,
+                        connector_name=self.config.market_maker_connector_name,
+                        side=TradeType.SELL,
+                        amount=self.config.order_amount_base,
+                        entry_price=order_price,
+                        triple_barrier_config=self.config.triple_barrier_config,
+                        leverage=self.config.leverage
+                    )
+                ))
+            # TODO: maker orders make a trade
 
-        # active_sell_position_executors = self.filter_executors(
-        #     executors=all_executors,
-        #     filter_func=lambda x: x.side == TradeType.SELL and x.type == "position_executor" and x.is_active)
+            self._last_trade_timestamp = int(time.time())
 
-        # for connector_name in self.connectors:
-        #     for trading_pair in self.market_data_provider.get_trading_pairs(connector_name):
-        #         # Get mid-price
-        #         mid_price = self.market_data_provider.get_price_by_type(connector_name, trading_pair, PriceType.MidPrice)
-        #         len_active_buys = len(self.filter_executors(
-        #             executors=active_buy_position_executors,
-        #             filter_func=lambda x: x.config.trading_pair == trading_pair))
-        #         # Evaluate if we need to create new executors and create the actions
-        #         if len_active_buys == 0:
-        #             order_price = mid_price * (1 - self.config.spread)
-        #             order_amount = self.config.order_amount_quote / order_price
-        #             create_actions.append(CreateExecutorAction(
-        #                 executor_config=PositionExecutorConfig(
-        #                     timestamp=self.current_timestamp,
-        #                     trading_pair=trading_pair,
-        #                     connector_name=connector_name,
-        #                     side=TradeType.BUY,
-        #                     amount=order_amount,
-        #                     entry_price=order_price,
-        #                     triple_barrier_config=self.config.triple_barrier_config,
-        #                     leverage=self.config.leverage
-        #                 )
-        #             ))
-        #         len_active_sells = len(self.filter_executors(
-        #             executors=active_sell_position_executors,
-        #             filter_func=lambda x: x.config.trading_pair == trading_pair))
-        #         if len_active_sells == 0:
-        #             order_price = mid_price * (1 + self.config.spread)
-        #             order_amount = self.config.order_amount_quote / order_price
-        #             create_actions.append(CreateExecutorAction(
-        #                 executor_config=PositionExecutorConfig(
-        #                     timestamp=self.current_timestamp,
-        #                     trading_pair=trading_pair,
-        #                     connector_name=connector_name,
-        #                     side=TradeType.SELL,
-        #                     amount=order_amount,
-        #                     entry_price=order_price,
-        #                     triple_barrier_config=self.config.triple_barrier_config,
-        #                     leverage=self.config.leverage
-        #                 )
-        #             ))
-        
+            for i in range(int(self.config.level)):
+                entry_price_buy = down_price - Decimal(i) * self.config.spread
+
+                create_actions.append(CreateExecutorAction(
+                    executor_config=PositionExecutorConfig(
+                        timestamp=self.current_timestamp,
+                        trading_pair=self.config.trading_pair,
+                        connector_name=self.config.market_maker_connector_name,
+                        side=TradeType.BUY,
+                        amount=self.config.order_amount_base,
+                        entry_price=entry_price_buy,
+                        triple_barrier_config=self.config.triple_barrier_config,
+                        leverage=self.config.leverage
+                    )
+                ))
+
+                entry_price_sell = up_price + Decimal(i) * self.config.spread
+
+                create_actions.append(CreateExecutorAction(
+                    executor_config=PositionExecutorConfig(
+                        timestamp=self.current_timestamp,
+                        trading_pair=self.config.trading_pair,
+                        connector_name=self.config.market_maker_connector_name,
+                        side=TradeType.SELL,
+                        amount=self.config.order_amount_base,
+                        entry_price=entry_price_sell,
+                        triple_barrier_config=self.config.triple_barrier_config,
+                        leverage=self.config.leverage
+                    )
+                ))
+
+
+            self._strategy_state = StrategyState.Paused
+
+
         return create_actions
 
     def stop_actions_proposal(self) -> List[StopExecutorAction]:
@@ -228,27 +222,19 @@ class PMMSingleLevel(StrategyV2Base):
         Create a list of actions to stop the executors based on order refresh and early stop conditions.
         """
         stop_actions = []
-        # stop_actions.extend(self.executors_to_refresh())
-        # stop_actions.extend(self.executors_to_early_stop())
+
+        if self._strategy_state == StrategyState.Paused and self._last_trade_timestamp + self.config.executor_refresh_time >= int(time.time()):
+
+            executors = self.get_all_executors()
+            stop_actions.extend(self.filter_executors(
+                executors=executors,
+                filter_func=lambda x: not x.is_trading and x.is_active
+            ))
+
+            
+            self._strategy_state = StrategyState.Opening
         return stop_actions
 
-    def executors_to_refresh(self) -> List[StopExecutorAction]:
-        """
-        Create a list of actions to stop the executors that need to be refreshed.
-        """
-        all_executors = self.get_all_executors()
-        executors_to_refresh = self.filter_executors(
-            executors=all_executors,
-            filter_func=lambda x: not x.is_trading and x.is_active and self.current_timestamp - x.timestamp > self.config.executor_refresh_time)
-
-        return [StopExecutorAction(executor_id=executor.id) for executor in executors_to_refresh]
-
-    def executors_to_early_stop(self) -> List[StopExecutorAction]:
-        """
-        Create a list of actions to stop the executors that need to be early stopped based on signals.
-        This is a simple example, in a real strategy you would use signals from the market data provider.
-        """
-        return []
 
     def apply_initial_setting(self):
         pass
